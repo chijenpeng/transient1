@@ -10,7 +10,7 @@ identity (`com.c0dypeng.transient1`, `Cdpg` / `Trn1`).
 - Controls: Attack and Sustain, -24..+24 dB in 0.1 dB steps, default 0 (bit-exact bypass of the processing: the output is the input delayed by the latency).
 - Latency: 1 ms (48 samples at 48 kHz), constant, reported to the host.
 - macOS Universal: AU and VST3, arm64 + x86_64.
-- Windows x64: VST3, built natively with MSVC on windows-2022; CTest result: PENDING (fill in after the workflow run).
+- Windows x64: VST3, built natively with MSVC on windows-2022; CTest 1/1 passed on windows-2022 ([run 40087440196](https://github.com/chijenpeng/transient1/actions/runs/40087440196)); the package is a PE32+ x86-64 VST3 exporting `GetPluginFactory`.
   Requires the Microsoft Visual C++ x64 Redistributable.
 - macOS bundles are ad-hoc signed, not notarized. Windows builds are unsigned.
 - Checked before release: CTest 1/1 (transient1_test: 47 checks pass, 3 skipped without the recordings, 0 failures); editor snapshot rendered; AU and VST3 slices arm64 + x86_64; ad-hoc signatures, ZIP integrity and SHA-256 verified by the packaging script. The real-recording checks ran locally on the maintainer's recordings and are skipped in CI.
