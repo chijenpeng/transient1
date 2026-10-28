@@ -13,7 +13,7 @@ Parameters, ranges, state and plug-in identity are unchanged, so sessions load a
 - Checked before release: CTest 1/1 (transient1_test: 50 checks pass, 3 skipped without the recordings, 0 failures; with the
   recordings in place locally: 60 pass, 0 skipped); editor snapshot rendered with `--synthetic`; AU and VST3 slices arm64 + x86_64;
   ad-hoc signatures, ZIP integrity and SHA-256 verified by the packaging script.
-- Windows x64: VST3, built natively with MSVC on windows-2022; CTest result: PENDING
+- Windows x64: VST3, built natively with MSVC on windows-2022; CTest 1/1 passed ([run 40639036665](https://github.com/chijenpeng/transient1/actions/runs/40639036665)); the package is a PE32+ x86-64 VST3 exporting `GetPluginFactory`.
 
 ## v0.1.0
 
