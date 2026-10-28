@@ -685,7 +685,7 @@ void testRepeats (const Audio& kick)
         double worst = 1.0e9;
         for (size_t k = 3; k + 1 < starts.size(); ++k)   // steady state: the first repeats are lower (see dsp.md)
             worst = std::min (worst, hitGain (r.gain, starts[k], starts[k] + period));
-        const double limit = rate < 10.0 ? 0.90 : 0.70;
+        const double limit = rate < 10.0 ? 0.90 : 0.85;   // soft depth, slow rise 35 ms: 16 Hz keeps about 90 % (the earlier hard clamp kept about 75 %)
         check (worst >= limit * isolated, fmt ("synthetic kick at %.0f Hz keeps %.0f %% of an isolated hit's %.2f dB (limit %.0f %%)",
                                                rate, 100.0 * worst / isolated, isolated, 100.0 * limit));
     }
@@ -706,7 +706,7 @@ void testRepeats (const Audio& kick)
             peakAt = i;
         }
     const size_t from = peakAt > 480 ? peakAt - 480 : 0, len = (size_t) (0.15 * kick.fs);   // the hit and its first 150 ms
-    for (const double rate : { 8.0, 16.0 })
+    for (const double rate : { 8.0, 14.67, 16.0 })
     {
         const size_t period = (size_t) std::lround (kick.fs / rate);
         std::vector<float> iso ((size_t) (1.5 * kick.fs), 0.0f), train ((size_t) (2.5 * kick.fs), 0.0f);
@@ -725,8 +725,9 @@ void testRepeats (const Audio& kick)
         double worst = 1.0e9;
         for (size_t i = 3; i + 1 < starts.size(); ++i)
             worst = std::min (worst, hitGain (r.gain, starts[i], starts[i] + period));
-        check (worst >= 0.90 * isolated, fmt ("real kick hit at %.0f Hz keeps %.0f %% of an isolated hit's %.2f dB (limit 90 %%)",
-                                              rate, 100.0 * worst / isolated, isolated));
+        const double limit = rate > 14.0 && rate < 15.0 ? 0.80 : 0.90;   // 14.67 Hz keeps about 82 % of an isolated hit (the earlier hard clamp kept about 70 %)
+        check (worst >= limit * isolated, fmt ("real kick hit at %.2f Hz keeps %.0f %% of an isolated hit's %.2f dB (limit %.0f %%)",
+                                               rate, 100.0 * worst / isolated, isolated, 100.0 * limit));
     }
 }
 
@@ -865,10 +866,16 @@ void testShape()
             minAfter = std::min (minAfter, sign * r.gain[i + 1]);
         }
         const double at60 = std::abs (r.gain[24000 + (size_t) r.latency + (size_t) (0.06 * fs)]);
+        // Tail shape: the Attack gain 20 and 30 ms after the onset, as a fraction of its peak
+        // (the earlier, shorter tail was 0.23 and 0.07).
+        const double at20 = std::abs (r.gain[24000 + (size_t) r.latency + (size_t) (0.02 * fs)]) / peak;
+        const double at30 = std::abs (r.gain[24000 + (size_t) r.latency + (size_t) (0.03 * fs)]) / peak;
         const double atOnset = sign * r.gain[24000 + (size_t) r.latency];
         check (std::abs (peak - std::abs (knob)) <= 0.1 && monotone && minAfter >= -0.01 && at60 < 0.1,
                fmt ("Attack %+.0f: peak %.3f dB, gain at the audible onset %.2f dB, |gain| %.3f dB 60 ms later, monotone decay %s, undershoot %.4f dB",
                     knob, peak, atOnset, at60, monotone ? "yes" : "NO", std::min (0.0, minAfter)));
+        check (at20 >= 0.27 && at30 >= 0.12,
+               fmt ("Attack %+.0f: tail 20 ms after the onset %.2f of the peak (>= 0.27), 30 ms %.2f (>= 0.12)", knob, at20, at30));
     }
 }
 

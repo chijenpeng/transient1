@@ -1,5 +1,20 @@
 # Transient1 release notes
 
+## v0.1.2
+
+Attack is fuller. The boost after each onset lasts longer, so the bump is broader, and fast kick patterns keep more of the
+effect: 1/32 notes at 110 BPM keep about 82 % instead of 70 %. Noise is slightly steadier. Sustain, level independence and
+latency are unchanged. Parameters, ranges, state and plug-in identity are unchanged, so sessions load as before, but Attack
+sounds fuller at the same setting.
+
+- Attack shape: the depth follows a soft curve instead of a hard clamp; the slow follower rises in 35 ms (was 30 ms) and the
+  adaptive dead zone uses a factor of 1.5 (was 1.25). After an onset the Attack gain falls to 0.80 / 0.50 / 0.24 of its peak at
+  10 / 20 / 30 ms (was 0.54 / 0.23 / 0.07).
+- Checked before release: CTest 1/1 (transient1_test: 53 checks pass, 3 skipped without the recordings, 0 failures; with the
+  recordings in place locally: 64 pass, 0 skipped); editor snapshot rendered with `--synthetic`; AU and VST3 slices arm64 + x86_64;
+  ad-hoc signatures, ZIP integrity and SHA-256 verified by the packaging script.
+- Windows x64: VST3, built natively with MSVC on windows-2022; CTest result: PENDING
+
 ## v0.1.1
 
 Attack no longer reacts to the steady wash of a room or overhead track, or to the low tail after a kick hit. Each hit now gives one

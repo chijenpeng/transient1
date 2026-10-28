@@ -40,8 +40,8 @@ struct DbFollower
 /**
     Attack: fast follower minus slow follower. Returns the depth 0..1 (dead zone, span, exponent).
     The slow follower never trails the fast one by more than the span. The dead zone adapts to the
-    local fluctuation of the difference, the depth is peak-held, and the gain is weighted by a relative
-    floor below the level's own peak memory (all constants in voicing.h).
+    local fluctuation of the difference, the depth is soft-limited and peak-held, and the gain is weighted
+    by a relative floor below the level's own peak memory (all constants in voicing.h).
 */
 class AttackPath
 {
@@ -53,6 +53,7 @@ public:
         fall = onePoleCoefficient (voicing::kAttackFallMs, rate);
         fluctuation = onePoleCoefficient (voicing::kAttackFluctuationMs, rate);
         peakDecay = std::exp (-1.0 / (voicing::kAttackPeakHoldMs * 1.0e-3 * rate));
+        softNormalise = 1.0 / std::tanh (voicing::kAttackSoftness);
         memoryHoldSamples = (int) std::lround (voicing::kRelativeHoldMs * 1.0e-3 * rate);
         memoryFall = voicing::kRelativeFallDbPerSec / rate;
         reset();
@@ -81,8 +82,9 @@ public:
         meanPositive += fluctuation * (clipped - meanPositive);
         const double deadZone = std::max (voicing::kAttackDeadZoneDb,
                                           voicing::kAttackFluctuationFactor * meanPositive);
-        raw = std::clamp ((difference - deadZone)
-                              / (voicing::kAttackSpanDb - voicing::kAttackDeadZoneDb), 0.0, 1.0);
+        const double span = std::max (0.0, (difference - deadZone)
+                                              / (voicing::kAttackSpanDb - voicing::kAttackDeadZoneDb));
+        raw = std::min (1.0, std::tanh (voicing::kAttackSoftness * span) * softNormalise);
         held = raw > held ? raw : held * peakDecay;
 
         // Relative floor: the peak memory of the level rises at once, holds, then falls.
@@ -119,6 +121,7 @@ private:
     double fluctuation = 1.0;
     double meanPositive = 0.0;
     double peakDecay = 1.0;
+    double softNormalise = 1.0;
     double raw = 0.0, held = 0.0;
     double memory = voicing::kFloorDb;
     double memoryFall = 0.0;

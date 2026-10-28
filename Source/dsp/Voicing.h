@@ -36,25 +36,28 @@ namespace transient::voicing
     // Attack path: fast follower minus slow follower, in dB
 
     /** Custom: the onset is "how far the level has just jumped above its recent past".
-        Fast follower: instant-ish rise (0.3 ms) and 5 ms fall; slow follower: 30 ms rise, 5 ms fall. */
+        Fast follower: instant-ish rise (0.3 ms) and 5 ms fall; slow follower: 35 ms rise, 5 ms fall. */
     inline constexpr double kAttackFastRiseMs = 0.3;
-    inline constexpr double kAttackSlowRiseMs = 30.0;
+    inline constexpr double kAttackSlowRiseMs = 35.0;
     inline constexpr double kAttackFallMs = 5.0;
     /** Custom: the slow follower never trails the fast one by more than this (Es >= Ef - 12 dB). */
     inline constexpr double kAttackSpanDb = 12.0;
     /** Custom: the smallest dead zone. Differences below the dead zone do nothing; the depth is 0..1 between the
         dead zone and the span (the span above the dead zone, 9 dB, is fixed). */
     inline constexpr double kAttackDeadZoneDb = 3.0;
+    /** Custom: the 0..1 depth is soft-limited: tanh (k x) / tanh (k), with x = 0..1 across the span above the dead zone
+        and k = 1.5, so a full-span difference still gives 1 and smaller differences rise without the hard corner. */
+    inline constexpr double kAttackSoftness = 1.5;
     /** Custom: shape of the 0..1 depth before it multiplies the knob. */
     inline constexpr double kAttackExponent = 1.5;
 
     /** Custom: the dead zone adapts to the local fluctuation of the Attack difference, so dense material (room wash,
         the noise under a decaying tail) is not taken for onsets. The fluctuation is a 100 ms one-pole mean of the
         positive difference, clipped at 4 dB so that a single hit cannot inflate it. The dead zone is
-        max(kAttackDeadZoneDb, 1.25 x fluctuation). Silence and clean decays keep the 3 dB dead zone. */
+        max(kAttackDeadZoneDb, 1.5 x fluctuation). Silence and clean decays keep the 3 dB dead zone. */
     inline constexpr double kAttackFluctuationMs = 100.0;
     inline constexpr double kAttackFluctuationClipDb = 4.0;
-    inline constexpr double kAttackFluctuationFactor = 1.25;
+    inline constexpr double kAttackFluctuationFactor = 1.5;
 
     /** Custom: the Attack depth is peak-held. It rises at once and falls with a 4 ms time constant, so a dip of a few
         milliseconds between a click and its body does not produce a second onset; the Attack gain decays smoothly

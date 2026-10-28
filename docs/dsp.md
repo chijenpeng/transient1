@@ -28,13 +28,15 @@ and scale with the rate.
 
 ## Attack path (`Followers.h`)
 
-dB-domain asymmetric one-poles. Fast follower Ef: rise 0.3 ms, fall 5 ms. Slow follower Es: rise 30 ms, fall 5 ms. Es is kept
+dB-domain asymmetric one-poles. Fast follower Ef: rise 0.3 ms, fall 5 ms. Slow follower Es: rise 35 ms, fall 5 ms. Es is kept
 at or above Ef - 12 dB (**Custom**). Times and structure **Custom**.
 
-Dead zone (**Custom**, adaptive): `DZ = max(3, 1.25 F)`, where `F` is a 100 ms one-pole mean of `clamp(Ef - Es, 0, 4 dB)`. The 4 dB clip keeps
+Dead zone (**Custom**, adaptive): `DZ = max(3, 1.5 F)`, where `F` is a 100 ms one-pole mean of `clamp(Ef - Es, 0, 4 dB)`. The 4 dB clip keeps
 a single hit from inflating `F`. Silence and clean decays keep the 3 dB dead zone; dense material (a room wash, the noise under a decaying tail)
 raises `F`, so only larger rises pass.
-Depth `dA = clamp((Ef - Es - DZ) / 9, 0, 1)` (the 9 dB span above the dead zone is fixed, so full scale is `DZ + 9`).
+Depth (**Custom**): `x = max(0, Ef - Es - DZ) / 9` (the 9 dB span above the dead zone is fixed, so full scale is `DZ + 9`), then the soft
+limit `dA = min(1, tanh(1.5 x) / tanh(1.5))`. A full-span difference still gives 1; a smaller difference rises without a corner, which
+lengthens the bump after an onset (see Measurements).
 
 Peak hold (**Custom**): the depth is held, `dAh = max(dA, dAh * exp(-1 / (4 ms * fs)))` per detector sample, so it rises at once and falls over
 about 4 ms. The hold keeps a second bump (a dip between a click and its body, then the body rising again) inside the first hit's gain.
@@ -110,7 +112,8 @@ The range for a bipolar display is +-48 dB at most (both sections at their knobs
 
 ## Tests
 
-`tests/transient1_test.cpp` (tests 1-12, 14, 15); the README has the commands. Test 13 is a comparison of the C++ with an offline C model of the same algorithm
+`tests/transient1_test.cpp` (tests 1-12, 14, 15); the README has the commands. Test 5 requires 85 % at 16 Hz for synthetic kicks and
+80 % at 14.67 Hz for the real kick. Test 13 is a comparison of the C++ with an offline C model of the same algorithm
 that is not part of this repository. The checks on recordings (the drum mix in 2 and 3, the real kick in 5, the bass DI in 15) need the optional
 recordings (`TRANSIENT1_TEST_AUDIO`) and are skipped without them. Test 5b checks the onset rule: a steady wash gives no Attack, hits on a wash
 are kept, and a kick with a click and a body gives one Attack peak per hit.
@@ -123,7 +126,8 @@ are kept, and a kick with a click and a body gives one Attack peak per hit.
 - Onset detection: a steady wash at -20 dBFS with Attack +24 gives an Attack gain above 1 dB for 0.000 % of its duration. Hits 12 dB above a wash at -30 dBFS, one every 200 ms, keep 11.8 to 11.9 dB of peak gain at Attack +12. A kick followed 68 ms later by a click and a body (the body peaking 8 ms after the click) gives one Attack peak for each hit.
 - Level independence: on a drum recording scaled by +6, -6, -12, -24 and -36 dB the applied gain stays within 0.012 dB of the unscaled one over the samples compared. Below about -72 dBFS the sections fade out by design.
 - Held material: Attack alone applies 0.000 dB to steady sines from 40 Hz to 5 kHz at -12, -40 and -70 dBFS; Sustain +-24 applies +-2.88 dB (ripple 0.0000 dB); THD of held 40 and 100 Hz sines at Sustain +-24 is -160.7 dB (20 and 40 Hz at 176.4 and 192 kHz: -169.1 dB).
-- Fast repeats: with Attack +24 a synthetic kick train keeps 100 % of an isolated hit's gain at 8 Hz and 75 % at 16 Hz in steady state. A real kick recording (the hit and the 150 ms after it) keeps 99 % at 8 Hz and 92 % at 16 Hz.
+- Fast repeats: with Attack +24 a synthetic kick train keeps 100 % of an isolated hit's gain at 8 Hz and 90 % at 16 Hz in steady state (the 16 Hz limit is 85 %). A real kick recording (the hit and the 150 ms after it) keeps 100 % at 8 Hz, 99 % at 14.67 Hz (1/32 notes at 110 BPM) and 93 % at 16 Hz. A 14.67 Hz train of kicks keeps 82.5 % of the isolated hit's gain in an offline check that is not part of this repository (0.1.1: 69.7 %).
+- Attack shape: after an onset the Attack gain falls to 0.80, 0.50, 0.24 and 0.07 of its peak at 10, 20, 30 and 40 ms (0.1.1: 0.54, 0.23, 0.07 and 0.01). The shape test requires at least 0.27 at 20 ms and 0.12 at 30 ms.
 - Hits on a wash: with 6 dB hits over a steady wash and Sustain -24, the hits' peak gain is -0.93 dB against -4.37 dB on the wash; with Sustain +24 the hits keep up with the wash (3.96 dB against 4.37 dB).
 - Smoothing: a 1 Hz +-24 dB sweep of both knobs moves the gain at most 0.00234 dB per sample; a jump from -24 to +24 at most 0.006 dB per sample. After an Attack cut the energy above 5 kHz is 33.8 dB below that of an unsmoothed, zero-latency gain.
 - Stereo: one gain for both channels (worst relative difference 1e-7); a steady right channel is not affected by hits on the left.

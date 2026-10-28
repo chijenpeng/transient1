@@ -38,7 +38,7 @@ dependency licences and build provenance, with a `.sha256` companion file.
 
 | Control | Range | Default | What it does |
 |---|---|---|---|
-| Attack (`attack`) | -24..+24 dB, step 0.1 | 0 | The largest gain the Attack section applies to the onset of a hit. A steady wash and the low tail after a hit do not count as onsets. Positive makes hits snappier, negative softer. |
+| Attack (`attack`) | -24..+24 dB, step 0.1 | 0 | The largest gain the Attack section applies to the onset of a hit. A steady wash and the low tail after a hit do not count as onsets. The boost fades over about 40 ms after each onset, so fast patterns (1/32 notes at 110 BPM) keep most of it. Positive makes hits snappier, negative softer. |
 | Sustain (`sustain`) | -24..+24 dB, step 0.1 | 0 | The largest gain the Sustain section applies to the decay after a hit. Held, steady material gets a constant 0.12 of the knob (+-2.88 dB at +-24); that part steps aside while an onset is being detected, so hits on continuous material are cut less than the wash. |
 
 Both are displayed as `+6.0 dB`. The knob law is a symmetric skew of 0.5 around 0 dB, so +-6 dB sits at half of each side's travel
