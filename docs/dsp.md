@@ -2,7 +2,7 @@
 
 Source: `Source/dsp/` (JUCE-free). Constants: `Source/dsp/Voicing.h`. Provenance labels: **Source** (published
 coefficients) and **Custom** (chosen for this plug-in). The numbers in the Measurements section come from
-`tests/transient1_test.cpp`.
+`tests/transient1_test.cpp`, run with and without the optional recordings.
 
 ## Signal flow
 
@@ -29,8 +29,20 @@ and scale with the rate.
 ## Attack path (`Followers.h`)
 
 dB-domain asymmetric one-poles. Fast follower Ef: rise 0.3 ms, fall 5 ms. Slow follower Es: rise 30 ms, fall 5 ms. Es is kept
-at or above Ef - 12 dB (**Custom**).
-Depth `dA = clamp((Ef - Es - 3) / 9, 0, 1)` (dead zone 3 dB, full at 12 dB, **Custom**), `sA = dA^1.5` (**Custom**).
+at or above Ef - 12 dB (**Custom**). Times and structure **Custom**.
+
+Dead zone (**Custom**, adaptive): `DZ = max(3, 1.25 F)`, where `F` is a 100 ms one-pole mean of `clamp(Ef - Es, 0, 4 dB)`. The 4 dB clip keeps
+a single hit from inflating `F`. Silence and clean decays keep the 3 dB dead zone; dense material (a room wash, the noise under a decaying tail)
+raises `F`, so only larger rises pass.
+Depth `dA = clamp((Ef - Es - DZ) / 9, 0, 1)` (the 9 dB span above the dead zone is fixed, so full scale is `DZ + 9`).
+
+Peak hold (**Custom**): the depth is held, `dAh = max(dA, dAh * exp(-1 / (4 ms * fs)))` per detector sample, so it rises at once and falls over
+about 4 ms. The hold keeps a second bump (a dip between a click and its body, then the body rising again) inside the first hit's gain.
+Shape `sA = dAh^1.5` (**Custom**).
+
+Relative floor (**Custom**): `wR = smoothstep((Ef - (M - 36)) / 6)`, where `M` is the peak memory of the detector level: it rises at once, holds
+1 s, then falls 6 dB/s. The Attack gain is weighted by `wR`, so tails and noise 36 dB and more below the track's own peaks are not taken for hits.
+It is relative to the material's own level, so level independence holds.
 
 ## Sustain path
 
@@ -38,14 +50,14 @@ Both followers rise in 6.6 ms (**Custom**); the fast one Ef2 falls in 25 ms and 
 If the level exceeds Ef2 + 8 dB the onset reset sets both to the level (**Custom**).
 `dS = clamp((Es2 - Ef2 - 3) / 27, 0, 1)` (dead zone 3, full at 30 dB, **Custom**).
 Body term (**Custom**): a counter ramps 0 -> 1 over 30 ms and restarts at 0 when the reset fires or the Attack depth (before its exponent) exceeds 0.9;
-`sS = min(1, dS + 0.12 * smoothstep(body) * (1 - dA))`, with `dA` the Attack depth before its exponent. Held, steady material (`dA` = 0) therefore carries
-a constant 0.12 of the Sustain knob. The `(1 - dA)` factor (**Custom**) suppresses the body term in proportion while the Attack path sees an onset,
-without resetting the ramp: on continuous material such as a room mic the hits (`dA` about 0.6) would otherwise sit in the held gain and Sustain -24 would cut them
-almost as much as the wash. The 0.9 restart and the 8 dB reset are unchanged.
+`sS = min(1, dS + 0.12 * smoothstep(body) * (1 - dAh))`, with `dAh` the held Attack depth before its exponent. Held, steady material (no onsets) therefore carries
+a constant 0.12 of the Sustain knob. The `(1 - dAh)` factor (**Custom**) suppresses the body term in proportion while the Attack path sees an onset,
+without resetting the ramp: on continuous material such as a room mic the hits would otherwise sit in the held gain and Sustain -24 would cut them
+almost as much as the wash. The 0.9 restart uses the raw depth before the hold, and the 8 dB reset is unchanged.
 
 ## Gain
 
-`g_dB = Attack * sA * wA + Sustain * sS * wS`, where `wA = smoothstep((Ef - (-84)) / 12)` and `wS` the same with Ef2: each section fades to 0 dB
+`g_dB = Attack * sA * wR * wA + Sustain * sS * wS`, where `wR` is the relative floor and `wA = smoothstep((Ef - (-84)) / 12)` and `wS` the same with Ef2: each section fades to 0 dB
 between -84 and -72 dB of its follower level (**Custom**; the silence floor, so noise and digital silence are never lifted;
 very quiet tails are therefore level dependent by design). The knob values are smoothed (linear, 20 ms, **Custom**) before the multiplication and
 land exactly on the target. The mean of the last L+1 raw gains (look-ahead boxcar) is applied to the input delayed by L samples,
@@ -99,17 +111,20 @@ The range for a bipolar display is +-48 dB at most (both sections at their knobs
 ## Tests
 
 `tests/transient1_test.cpp` (tests 1-12, 14, 15); the README has the commands. Test 13 is a comparison of the C++ with an offline C model of the same algorithm
-that is not part of this repository. Tests 3, 5 (real kick) and 15 need optional recordings (`TRANSIENT1_TEST_AUDIO`) and are skipped without them.
+that is not part of this repository. The checks on recordings (the drum mix in 2 and 3, the real kick in 5, the bass DI in 15) need the optional
+recordings (`TRANSIENT1_TEST_AUDIO`) and are skipped without them. Test 5b checks the onset rule: a steady wash gives no Attack, hits on a wash
+are kept, and a kick with a click and a body gives one Attack peak per hit.
 
 ## Measurements
 
 - Latency: 1 ms (44 / 48 / 88 / 96 / 176 / 192 samples), identical at neutral and at Attack +24 / Sustain -24, equal to the reported value.
 - Neutral: with both knobs at 0 the output equals the delayed input bit for bit (72 combinations of channels, rates 44.1 / 48 / 96 kHz and block sizes 1 to 4096).
-- Honest dB: an onset from silence reaches exactly +-24.0000 dB of Attack and a decay exactly +-24.0000 dB of Sustain; on noise the Attack gain stays inside [0, 24] and the Sustain gain inside +-2.88 dB.
-- Level independence: on a drum recording scaled by +6, -6, -12, -24 and -36 dB the applied gain matches the unscaled one to 0.0000 dB wherever it is compared. Below about -72 dBFS the sections fade out by design.
+- Honest dB: an onset from silence reaches +-23.91 dB of its 24 dB Attack knob, a decay reaches exactly +-24.0000 dB of Sustain; on noise the Attack gain stays inside [0, 24] and the Sustain gain inside +-2.88 dB.
+- Onset detection: a steady wash at -20 dBFS with Attack +24 gives an Attack gain above 1 dB for 0.000 % of its duration. Hits 12 dB above a wash at -30 dBFS, one every 200 ms, keep 11.8 to 11.9 dB of peak gain at Attack +12. A kick followed 68 ms later by a click and a body (the body peaking 8 ms after the click) gives one Attack peak for each hit.
+- Level independence: on a drum recording scaled by +6, -6, -12, -24 and -36 dB the applied gain stays within 0.012 dB of the unscaled one over the samples compared. Below about -72 dBFS the sections fade out by design.
 - Held material: Attack alone applies 0.000 dB to steady sines from 40 Hz to 5 kHz at -12, -40 and -70 dBFS; Sustain +-24 applies +-2.88 dB (ripple 0.0000 dB); THD of held 40 and 100 Hz sines at Sustain +-24 is -160.7 dB (20 and 40 Hz at 176.4 and 192 kHz: -169.1 dB).
-- Fast repeats: with Attack +24 a synthetic kick train keeps 100 % of an isolated hit's gain at 8 Hz and 75 % at 16 Hz in steady state; the second hit of a 16 Hz train is lower (64 %), because the first hit's tail has just raised the slow follower. A real kick recording (hit plus 150 ms) keeps 99 % / 96 %.
-- Hits on a wash: with 6 dB hits over a steady wash and Sustain -24, the hits' peak gain is -0.92 dB against -4.39 dB on the wash.
-- Smoothing: a 1 Hz +-24 dB sweep of both knobs moves the gain at most 0.00233 dB per sample; a jump from -24 to +24 at most 0.006 dB per sample. After an Attack cut the energy above 5 kHz is 26.9 dB below that of an unsmoothed, zero-latency gain.
+- Fast repeats: with Attack +24 a synthetic kick train keeps 100 % of an isolated hit's gain at 8 Hz and 75 % at 16 Hz in steady state. A real kick recording (the hit and the 150 ms after it) keeps 99 % at 8 Hz and 92 % at 16 Hz.
+- Hits on a wash: with 6 dB hits over a steady wash and Sustain -24, the hits' peak gain is -0.93 dB against -4.37 dB on the wash; with Sustain +24 the hits keep up with the wash (3.96 dB against 4.37 dB).
+- Smoothing: a 1 Hz +-24 dB sweep of both knobs moves the gain at most 0.00234 dB per sample; a jump from -24 to +24 at most 0.006 dB per sample. After an Attack cut the energy above 5 kHz is 33.8 dB below that of an unsmoothed, zero-latency gain.
 - Stereo: one gain for both channels (worst relative difference 1e-7); a steady right channel is not affected by hits on the left.
-- Realtime: no allocations in `process`, `processBlock` or `processBlockBypassed`; 10 s of stereo at 48 kHz renders about 360 times faster than real time on an Apple-silicon laptop.
+- Realtime: no allocations in `process`, `processBlock` or `processBlockBypassed`; 10 s of stereo at 48 kHz runs about 430 to 440 times faster than real time in the test (best of 5 runs).

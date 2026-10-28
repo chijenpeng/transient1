@@ -38,7 +38,7 @@ dependency licences and build provenance, with a `.sha256` companion file.
 
 | Control | Range | Default | What it does |
 |---|---|---|---|
-| Attack (`attack`) | -24..+24 dB, step 0.1 | 0 | The largest gain the Attack section applies to the onset of a hit. Positive makes hits snappier, negative softer. |
+| Attack (`attack`) | -24..+24 dB, step 0.1 | 0 | The largest gain the Attack section applies to the onset of a hit. A steady wash and the low tail after a hit do not count as onsets. Positive makes hits snappier, negative softer. |
 | Sustain (`sustain`) | -24..+24 dB, step 0.1 | 0 | The largest gain the Sustain section applies to the decay after a hit. Held, steady material gets a constant 0.12 of the knob (+-2.88 dB at +-24); that part steps aside while an onset is being detected, so hits on continuous material are cut less than the wash. |
 
 Both are displayed as `+6.0 dB`. The knob law is a symmetric skew of 0.5 around 0 dB, so +-6 dB sits at half of each side's travel
@@ -54,6 +54,8 @@ The state carries version 1.
   knob value and reported to the host. Host bypass keeps the audio delayed.
 - At sample rates above 96 kHz (176.4 and 192 kHz) the detector runs at half the rate, to avoid low-frequency ripple in the
   envelope; latency is unchanged.
+- Attack fades out for onsets 30 to 36 dB below the track's own recent peak level (1 s memory, then a 6 dB/s fall), so a very soft
+  hit right after a loud one is not shaped.
 - The +-24 dB range and the 0.5 knob skew are choices for this plug-in, as are the detector times and depths listed in
   [docs/dsp.md](docs/dsp.md).
 
@@ -78,7 +80,8 @@ For a universal macOS build add `-DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"`. Plug
 `transient1_test` (CTest `transient1_test`) prints PASS or FAIL per check and exits non-zero on any failure. It checks: bit-exact
 neutral at 0 dB across channel counts, rates and block sizes; that each knob value is reached and never exceeded; level independence
 (a recording scaled by +6 to -36 dB gets the same gain); steady and held material (constant body gain, no ripple, THD of held
-low sines, including 176.4 and 192 kHz); fast repeats; the shape of the gain on a tone onset; reported latency against the measured
+low sines, including 176.4 and 192 kHz); fast repeats; onset detection (no Attack on a steady wash, one Attack peak per hit on a
+kick with a body); the shape of the gain on a tone onset; reported latency against the measured
 impulse delay at six sample rates; clicks after an Attack cut; the stereo link and mono; allocation-free processing; state round trip,
 parameter mapping and old or garbage state; zipper-free knob sweeps; and a coarse CPU guard. Checks that need real recordings (drum mix, kick,
 bass DI) run only when `TRANSIENT1_TEST_AUDIO` names a folder with `drums/drums.wav`, `drums/kick.wav` and `di/bass.wav`; otherwise

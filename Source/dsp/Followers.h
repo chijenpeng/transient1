@@ -39,7 +39,9 @@ struct DbFollower
 
 /**
     Attack: fast follower minus slow follower. Returns the depth 0..1 (dead zone, span, exponent).
-    The slow follower never trails the fast one by more than the span.
+    The slow follower never trails the fast one by more than the span. The dead zone adapts to the
+    local fluctuation of the difference, the depth is peak-held, and the gain is weighted by a relative
+    floor below the level's own peak memory (all constants in voicing.h).
 */
 class AttackPath
 {
@@ -49,31 +51,78 @@ public:
         fastRise = onePoleCoefficient (voicing::kAttackFastRiseMs, rate);
         slowRise = onePoleCoefficient (voicing::kAttackSlowRiseMs, rate);
         fall = onePoleCoefficient (voicing::kAttackFallMs, rate);
+        fluctuation = onePoleCoefficient (voicing::kAttackFluctuationMs, rate);
+        peakDecay = std::exp (-1.0 / (voicing::kAttackPeakHoldMs * 1.0e-3 * rate));
+        memoryHoldSamples = (int) std::lround (voicing::kRelativeHoldMs * 1.0e-3 * rate);
+        memoryFall = voicing::kRelativeFallDbPerSec / rate;
         reset();
     }
-    void reset() noexcept { fast.reset(); slow.reset(); }
+    void reset() noexcept
+    {
+        fast.reset();
+        slow.reset();
+        meanPositive = 0.0;
+        raw = 0.0;
+        held = 0.0;
+        memory = voicing::kFloorDb;
+        memoryHold = 0;
+    }
 
-    /** @return the depth after the exponent; depthBeforeExponent() holds it before. */
+    /** @return the Attack shape: held depth ^ exponent times the relative-floor weight. */
     double process (double levelDb) noexcept
     {
         fast.step (levelDb, fastRise, fall);
         slow.step (levelDb, slowRise, fall);
         if (slow.value < fast.value - voicing::kAttackSpanDb)
             slow.value = fast.value - voicing::kAttackSpanDb;
-        depth = std::clamp ((fast.value - slow.value - voicing::kAttackDeadZoneDb)
-                                / (voicing::kAttackSpanDb - voicing::kAttackDeadZoneDb), 0.0, 1.0);
-        static_assert (voicing::kAttackExponent == 1.5, "depth * sqrt (depth) below is the exponent");
-        return depth * std::sqrt (depth);
+
+        const double difference = fast.value - slow.value;
+        const double clipped = std::clamp (difference, 0.0, voicing::kAttackFluctuationClipDb);
+        meanPositive += fluctuation * (clipped - meanPositive);
+        const double deadZone = std::max (voicing::kAttackDeadZoneDb,
+                                          voicing::kAttackFluctuationFactor * meanPositive);
+        raw = std::clamp ((difference - deadZone)
+                              / (voicing::kAttackSpanDb - voicing::kAttackDeadZoneDb), 0.0, 1.0);
+        held = raw > held ? raw : held * peakDecay;
+
+        // Relative floor: the peak memory of the level rises at once, holds, then falls.
+        if (levelDb > memory)
+        {
+            memory = levelDb;
+            memoryHold = memoryHoldSamples;
+        }
+        else if (memoryHold > 0)
+        {
+            --memoryHold;
+        }
+        else
+        {
+            memory -= memoryFall;
+        }
+        const double relative = smoothstep ((fast.value - (memory - voicing::kRelativeFloorDb))
+                                            / voicing::kRelativeFloorWidthDb);
+
+        static_assert (voicing::kAttackExponent == 1.5, "held * sqrt (held) below is the exponent");
+        return held * std::sqrt (held) * relative;
     }
 
-    double depthBeforeExponent() const noexcept { return depth; }
+    /** The depth before the exponent, from this sample (restarts the Sustain body ramp). */
+    double rawDepth() const noexcept { return raw; }
+    /** The peak-held depth before the exponent (suppresses the Sustain body term). */
+    double heldDepth() const noexcept { return held; }
     /** The fast follower in dB: the level this section reasons about (floor fade input). */
     double level() const noexcept { return fast.value; }
 
 private:
     DbFollower fast, slow;
     double fastRise = 1.0, slowRise = 1.0, fall = 1.0;
-    double depth = 0.0;
+    double fluctuation = 1.0;
+    double meanPositive = 0.0;
+    double peakDecay = 1.0;
+    double raw = 0.0, held = 0.0;
+    double memory = voicing::kFloorDb;
+    double memoryFall = 0.0;
+    int memoryHoldSamples = 0, memoryHold = 0;
 };
 
 /**
@@ -93,8 +142,11 @@ public:
     }
     void reset() noexcept { fast.reset(); slow.reset(); body = 0.0; }
 
-    /** @param attackDepth the Attack path's depth before its exponent (restarts the body ramp and suppresses the body term in proportion). */
-    double process (double levelDb, double attackDepth) noexcept
+    /**
+        @param attackRaw the Attack path's raw depth (before its exponent): above the restart depth it restarts the body ramp.
+        @param attackHeld the Attack path's peak-held depth: the body term is suppressed in proportion to it.
+    */
+    double process (double levelDb, double attackRaw, double attackHeld) noexcept
     {
         bool resetFired = false;
         if (levelDb > fast.value + voicing::kSustainResetDb)
@@ -107,11 +159,11 @@ public:
         slow.step (levelDb, rise, slowFall);
         double depth = std::clamp ((slow.value - fast.value - voicing::kSustainDeadZoneDb)
                                        / (voicing::kSustainSpanDb - voicing::kSustainDeadZoneDb), 0.0, 1.0);
-        if (resetFired || attackDepth > voicing::kBodyRestartDepth)
+        if (resetFired || attackRaw > voicing::kBodyRestartDepth)
             body = 0.0;
         else
             body = std::min (1.0, body + bodyStep);
-        depth = std::min (1.0, depth + voicing::kBodyGain * smoothstep (body) * (1.0 - attackDepth));
+        depth = std::min (1.0, depth + voicing::kBodyGain * smoothstep (body) * (1.0 - attackHeld));
         return depth;
     }
 

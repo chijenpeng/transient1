@@ -42,10 +42,33 @@ namespace transient::voicing
     inline constexpr double kAttackFallMs = 5.0;
     /** Custom: the slow follower never trails the fast one by more than this (Es >= Ef - 12 dB). */
     inline constexpr double kAttackSpanDb = 12.0;
-    /** Custom: differences below this do nothing; the difference is 0..1 between dead zone and span. */
+    /** Custom: the smallest dead zone. Differences below the dead zone do nothing; the depth is 0..1 between the
+        dead zone and the span (the span above the dead zone, 9 dB, is fixed). */
     inline constexpr double kAttackDeadZoneDb = 3.0;
     /** Custom: shape of the 0..1 depth before it multiplies the knob. */
     inline constexpr double kAttackExponent = 1.5;
+
+    /** Custom: the dead zone adapts to the local fluctuation of the Attack difference, so dense material (room wash,
+        the noise under a decaying tail) is not taken for onsets. The fluctuation is a 100 ms one-pole mean of the
+        positive difference, clipped at 4 dB so that a single hit cannot inflate it. The dead zone is
+        max(kAttackDeadZoneDb, 1.25 x fluctuation). Silence and clean decays keep the 3 dB dead zone. */
+    inline constexpr double kAttackFluctuationMs = 100.0;
+    inline constexpr double kAttackFluctuationClipDb = 4.0;
+    inline constexpr double kAttackFluctuationFactor = 1.25;
+
+    /** Custom: the Attack depth is peak-held. It rises at once and falls with a 4 ms time constant, so a dip of a few
+        milliseconds between a click and its body does not produce a second onset; the Attack gain decays smoothly
+        after a hit. The Sustain body suppression uses the held depth; its 0.9 restart uses the raw depth. */
+    inline constexpr double kAttackPeakHoldMs = 4.0;
+
+    /** Custom: relative floor. Attack gain is weighted by the detector level relative to its own peak memory:
+        the memory rises at once, holds 1 s, then falls 6 dB/s. The weight is 0 at 36 dB or more below the memory
+        and 1 from 30 dB below it up (smoothstep over 6 dB), so tails and noise far below the track's own peaks
+        are not taken for hits. Level independent: it follows the material's own level. */
+    inline constexpr double kRelativeFloorDb = 36.0;
+    inline constexpr double kRelativeFloorWidthDb = 6.0;
+    inline constexpr double kRelativeHoldMs = 1000.0;
+    inline constexpr double kRelativeFallDbPerSec = 6.0;
 
     //==========================================================================
     // Sustain path: slow-release follower minus fast-release follower, in dB
@@ -63,7 +86,7 @@ namespace transient::voicing
 
     /** Custom: held material (no decay, no onset) carries this fraction of the Sustain knob,
         reached smoothly 30 ms after the last onset. It restarts when the Attack depth exceeds
-        0.9 or the reset fires, and is scaled by (1 - Attack depth before its exponent) so that
+        0.9 (raw Attack depth) or the reset fires, and is scaled by (1 - held Attack depth) so that
         hits on continuous material (a room mic) are not cut along with the wash. Makes a bass or
         palm-muted DI respond to Sustain. */
     inline constexpr double kBodyGain = 0.12;

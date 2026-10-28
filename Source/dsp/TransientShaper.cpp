@@ -78,7 +78,7 @@ void TransientShaper::detectorStep (double e) noexcept
 {
     const double level = levelDb (e);
     const double attackDepth = attackPath.process (level);
-    const double sustainDepth = sustainPath.process (level, attackPath.depthBeforeExponent());
+    const double sustainDepth = sustainPath.process (level, attackPath.rawDepth(), attackPath.heldDepth());
     attackShape = attackDepth * floorFade (attackPath.level());
     sustainShape = sustainDepth * floorFade (sustainPath.level());
 }

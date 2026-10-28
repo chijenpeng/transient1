@@ -1,5 +1,20 @@
 # Transient1 release notes
 
+## v0.1.1
+
+Attack no longer reacts to the steady wash of a room or overhead track, or to the low tail after a kick hit. Each hit now gives one
+smooth Attack bump, also on fast kick patterns such as 1/32 notes at 110 BPM. Sustain, level independence and latency are unchanged.
+Parameters, ranges, state and plug-in identity are unchanged, so sessions load as before.
+
+- Onset detection: the dead zone follows the recent level fluctuation, onsets far below the track's own recent peak are ignored, and the
+  Attack depth is held for about 4 ms so a dip between a click and its body does not give a second bump.
+- Limit: Attack fades out for onsets 30 to 36 dB below the track's own recent peak level (1 s memory), so a very soft hit right after a
+  loud one is not shaped.
+- Checked before release: CTest 1/1 (transient1_test: 50 checks pass, 3 skipped without the recordings, 0 failures; with the
+  recordings in place locally: 60 pass, 0 skipped); editor snapshot rendered with `--synthetic`; AU and VST3 slices arm64 + x86_64;
+  ad-hoc signatures, ZIP integrity and SHA-256 verified by the packaging script.
+- Windows x64: VST3, built natively with MSVC on windows-2022; CTest result: PENDING
+
 ## v0.1.0
 
 Transient1 is a two-knob transient shaper: Attack and Sustain, each in dB and each the largest gain its

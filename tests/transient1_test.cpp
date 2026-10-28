@@ -1,5 +1,5 @@
 // Offline checks of Transient1. Prints PASS/FAIL per check and returns non-zero when anything
-// failed. Tests 1-12, 14 and 15 are here; test 13 (port fidelity against an offline C model of the
+// failed. Tests 1-12, 14 and 15 (and 5b, onset detection) are here; test 13 (port fidelity against an offline C model of the
 // same algorithm) is a separate script that is not part of this repository. Real recordings are
 // optional: set TRANSIENT1_TEST_AUDIO to a folder holding drums/drums.wav, drums/kick.wav and
 // di/bass.wav; without it the checks that need them are skipped with a message.
@@ -427,7 +427,8 @@ void testHonestDb (const Audio& drums)
         double lo, hi;
         extremes (r.gain, 0, r.gain.size(), lo, hi);
         double peak = knob > 0 ? hi : lo;
-        check (std::abs (peak - knob) <= 0.01, fmt ("Attack %+.0f dB onset from silence reaches %+.4f dB", knob, peak));
+        // Tolerance 0.1 dB: the peak hold (5 ms) decays across the envelope ripple of a steady tone (about 0.07 dB).
+        check (std::abs (peak - knob) <= 0.1, fmt ("Attack %+.0f dB onset from silence reaches %+.4f dB", knob, peak));
 
         // Sustain decay: -0 dBFS burst decaying with tau 100 ms.
         std::vector<float> d ((size_t) (3.0 * fs), 0.0f);
@@ -730,6 +731,107 @@ void testRepeats (const Audio& kick)
 }
 
 //==============================================================================
+// 5b. Onset detection: the adaptive dead zone (wash), hits in a wash, one peak per hit
+
+/** Separate runs of Attack gain above 0.5 dB that start in [from, to). Runs less than 3 ms apart are one run. */
+size_t attackPeaks (const std::vector<double>& g, size_t from, size_t to, double fs)
+{
+    const size_t gap = (size_t) std::lround (0.003 * fs);
+    size_t count = 0, lastEnd = 0;
+    bool above = false, haveRun = false;
+    for (size_t i = 0; i < g.size(); ++i)
+    {
+        if (g[i] > 0.5)
+        {
+            if (! above)
+            {
+                const bool merged = haveRun && i - lastEnd < gap;
+                if (! merged && i >= from && i < to)
+                    ++count;
+                above = true;
+            }
+        }
+        else if (above)
+        {
+            above = false;
+            lastEnd = i;
+            haveRun = true;
+        }
+    }
+    return count;
+}
+
+void testOnsets()
+{
+    section ("5b. Onset detection (adaptive dead zone, one peak per hit)");
+    const double fs = 48000.0;
+
+    // Stationary wash: no Attack activity.
+    {
+        const auto wash = noise (fs, -20.0, 10.0, 7);
+        const auto r = renderEngine (mono (wash, fs), 24.0, 0.0);
+        size_t above = 0, total = 0;
+        for (size_t i = (size_t) (0.5 * fs); i < r.gain.size(); ++i)
+        {
+            ++total;
+            if (r.gain[i] > 1.0)
+                ++above;
+        }
+        const double pct = 100.0 * (double) above / (double) total;
+        check (pct < 0.5, fmt ("stationary wash at -20 dBFS, Attack +24: gain above 1 dB for %.3f %% of the time (limit 0.5 %%)", pct));
+    }
+
+    // Wash with hits 12 dB above it (8 ms bursts every 200 ms): every hit is detected.
+    {
+        const double washDb = -30.0;
+        auto x = noise (fs, washDb, 10.0, 11);
+        const auto burst = noise (fs, washDb + 12.0, 0.008, 5);
+        std::vector<size_t> hits;
+        for (size_t s = (size_t) (0.5 * fs); s + (size_t) (0.02 * fs) < x.size(); s += (size_t) (0.2 * fs))
+        {
+            for (size_t i = 0; i < burst.size() && s + i < x.size(); ++i)
+                x[s + i] += burst[i];
+            hits.push_back (s);
+        }
+        const auto r = renderEngine (mono (x, fs), 12.0, 0.0);
+        double lowest = 1.0e9, sum = 0.0;
+        for (const size_t h : hits)
+        {
+            double lo = 0.0, hi = 0.0;
+            extremes (r.gain, h, h + (size_t) (0.02 * fs), lo, hi);
+            lowest = std::min (lowest, hi);
+            sum += hi;
+        }
+        const double mean = sum / (double) hits.size();
+        check (lowest >= 6.0 && mean >= 10.0,
+               fmt ("wash at -30 dBFS, hits 12 dB above it every 200 ms, Attack +12: hit peak gain %.2f dB lowest, %.2f dB mean (>= 6 and >= 10)", lowest, mean));
+    }
+
+    // A kick (addKick), then 68 ms later a click and a 55 Hz body peaking 8 ms after the click, with a dip between.
+    // The body rises after the first hit's tail has set the slow follower; today's detector reads it as a second onset.
+    {
+        const size_t lead = (size_t) (0.1 * fs), gap = (size_t) (0.068 * fs), n = (size_t) (0.4 * fs);
+        std::vector<float> x (lead + gap + n + (size_t) (0.1 * fs), 0.0f);
+        addKick (x, fs, lead);
+        const size_t second = lead + gap;
+        for (size_t i = 0; i < n && second + i < x.size(); ++i)
+        {
+            const double t = (double) i / fs;
+            const double click = 0.35 * std::exp (-t / 0.0005) * std::sin (2.0 * kPi * 2500.0 * t);
+            const double envelope = std::exp (-0.5 * std::pow ((t * 1.0e3 - 8.0) / 1.0, 2.0)) * std::exp (-t / 0.040);
+            const double body = 0.6 * envelope * std::sin (2.0 * kPi * 55.0 * t);
+            x[second + i] += (float) (click + body);
+        }
+        const auto r = renderEngine (mono (x, fs), 12.0, 0.0);
+        const size_t firstPeaks = attackPeaks (r.gain, lead - (size_t) (0.005 * fs), lead + gap - (size_t) (0.005 * fs), fs);
+        const size_t secondPeaks = attackPeaks (r.gain, second - (size_t) (0.005 * fs), second + (size_t) (0.06 * fs), fs);
+        check (firstPeaks == 1 && secondPeaks == 1,
+               fmt ("kick, then click + body 68 ms later (body peak 8 ms after the click, dip between), Attack +12: Attack peaks %zu and %zu (want 1 each)",
+                    firstPeaks, secondPeaks));
+    }
+}
+
+//==============================================================================
 // 6. Shape
 
 void testShape()
@@ -759,12 +861,12 @@ void testShape()
         double minAfter = 1.0e9;
         for (size_t i = plateauEnd; i + 1 < r.gain.size(); ++i)
         {
-            monotone = monotone && sign * r.gain[i + 1] <= sign * r.gain[i] + 1.0e-9;
+            monotone = monotone && sign * r.gain[i + 1] <= sign * r.gain[i] + 0.1;   // peak-hold ripple, see test 2
             minAfter = std::min (minAfter, sign * r.gain[i + 1]);
         }
         const double at60 = std::abs (r.gain[24000 + (size_t) r.latency + (size_t) (0.06 * fs)]);
         const double atOnset = sign * r.gain[24000 + (size_t) r.latency];
-        check (std::abs (peak - std::abs (knob)) <= 0.01 && monotone && minAfter >= -0.01 && at60 < 0.1,
+        check (std::abs (peak - std::abs (knob)) <= 0.1 && monotone && minAfter >= -0.01 && at60 < 0.1,
                fmt ("Attack %+.0f: peak %.3f dB, gain at the audible onset %.2f dB, |gain| %.3f dB 60 ms later, monotone decay %s, undershoot %.4f dB",
                     knob, peak, atOnset, at60, monotone ? "yes" : "NO", std::min (0.0, minAfter)));
     }
@@ -1168,6 +1270,7 @@ int main()
     testLevelIndependence (drums);
     testSteady();
     testRepeats (kick);
+    testOnsets();
     testShape();
     testLatency();
     testClicks();
